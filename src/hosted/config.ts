@@ -4,6 +4,7 @@ import type { HostedAppOptions } from "./app.js";
 import { redirectListFromEnv } from "./known-clients.js";
 import { DEFAULT_CIMD_HOSTS, DEFAULT_DISPLAY_NAME } from "./oauth.js";
 import { parseEncryptionKeys } from "./shopify-connect.js";
+import { ownerEmailFromEnv } from "./owner-mode.js";
 
 /**
  * The hosted server's settings as plain strings: process.env on Node (`serve`), the Worker's
@@ -94,6 +95,7 @@ export async function hostedOptionsFromEnv(
   const appClientSecret = env.SHOPIFY_APP_CLIENT_SECRET?.trim() || undefined;
   const scopes = list(env.SHOPIFY_APP_SCOPES) ?? fullScopes();
   const identityStore = env.SHOPIFY_IDENTITY_STORE?.trim() || undefined;
+  const ownerEmail = ownerEmailFromEnv(env.OWNER_EMAIL);
   if (identityStore && !(await platform.loadStores()).some((store) => store.alias.toLowerCase() === identityStore.toLowerCase())) {
     throw new Error(`SHOPIFY_IDENTITY_STORE names ${identityStore}, which is not a configured store alias.`);
   }
@@ -111,6 +113,7 @@ export async function hostedOptionsFromEnv(
     sessionMaxAgeSeconds: positiveInt(env, "OAUTH_SESSION_MAX_AGE_SECONDS", 7 * 24 * 3600),
     clientIdleTtlSeconds: positiveInt(env, "OAUTH_CLIENT_IDLE_TTL_SECONDS", 30 * 24 * 3600),
     maxRegistrationsPerSourcePerHour: nonNegativeInt(env, "OAUTH_MAX_REGISTRATIONS_PER_SOURCE_PER_HOUR", 30),
+    ...(ownerEmail ? { ownerEmail } : {}),
     shopifyConnect: {
       encryptionKeys,
       loadStores: platform.loadStores,
