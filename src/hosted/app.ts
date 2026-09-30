@@ -6,11 +6,14 @@ import type { UserShopifyAccess } from "../runtime.js";
 import { guardServer, type Principal } from "./guard.js";
 import { AuthorizationServer, SCOPE, type AuthServerOptions } from "./oauth.js";
 import { ShopifyConnections, type ShopifyConnectOptions } from "./shopify-connect.js";
+import { OwnerMode } from "./owner-mode.js";
 
 export interface HostedAppOptions extends AuthServerOptions {
   audit: AuditLog;
   /** Shopify app credentials, token encryption and the configured stores. auth, store and now come from these options. */
   shopifyConnect: Omit<ShopifyConnectOptions, "auth" | "store" | "now">;
+  /** Owner mode (OWNER_EMAIL): only this Shopify staff email signs in, and its calls use renewed app tokens. See owner-mode.ts. */
+  ownerEmail?: string;
 }
 
 export interface HostedApp {
@@ -51,6 +54,18 @@ export function createHostedApp(options: HostedAppOptions): HostedApp {
   const auth = new AuthorizationServer(options);
   const shopify = new ShopifyConnections({ ...options.shopifyConnect, auth, store: options.store, ...(options.now ? { now: options.now } : {}) });
   auth.onPageSignIn = (purpose, email) => shopify.signedIn(email, purpose);
+  const owner = options.ownerEmail
+    ? new OwnerMode({
+      ownerEmail: options.ownerEmail,
+      loadStores: options.shopifyConnect.loadStores,
+      clientId: options.shopifyConnect.clientId,
+      clientSecret: options.shopifyConnect.clientSecret,
+      storesUrl: shopify.storesUrl,
+      ...(options.shopifyConnect.fetch ? { fetch: options.shopifyConnect.fetch } : {}),
+      ...(options.now ? { now: options.now } : {})
+    })
+    : undefined;
+  owner?.restrictSignIn(auth);
   const mcpPath = new URL(auth.resource).pathname;
 
   // Stateless: a fresh McpServer per request, built for the caller. No session state, so the
@@ -98,7 +113,7 @@ export function createHostedApp(options: HostedAppOptions): HostedApp {
       scopes: [record.scope],
       expiresAt: Math.floor(record.expiresAt / 1000),
       resource: new URL(auth.resource),
-      extra: { principal, access: shopify.accessFor(principal.email) }
+      extra: { principal, access: owner ? owner.accessFor(principal.email) : shopify.accessFor(principal.email) }
     };
     return mcp.fetch(request, { authInfo });
   }
